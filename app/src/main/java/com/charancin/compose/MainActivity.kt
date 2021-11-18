@@ -9,16 +9,16 @@ import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.State
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -27,13 +27,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.charancin.compose.ui.theme.ComposeTheme
 
-private const val FIRST = "first"
-private const val SECOND = "second"
-private const val THIRD = "third"
-
 class MainActivity : ComponentActivity() {
-
-//    private val viewModel by viewModels<MainViewModel>()
 
     @Preview(showBackground = true)
     @Composable
@@ -51,106 +45,55 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun BuildScaffold() {
-        val navigationCtrl = rememberNavController()
+    fun BuildScaffold(viewModel: MainViewModel = viewModel()) {
+        // 기본 용법.
+        // mutableState 객체 이기 때문에, 직접적으로 접근이 불가능.
+        val text1: MutableState<String> = remember {
+            mutableStateOf("Hello world!")
+        }
+
+        // 간단하게.
+        // delegate property kotlin getter setter.
+        // by 구문을 적음 으로서 자체적으로 getter 와 setter 를 정의 해줌.
+        var text2: String by remember {
+            mutableStateOf("Hello world!")
+        }
+
+        // 세밀한 구조.
+        // operator component1, component2 를 정의.
+        val (getValue: String, setValue: (String) -> Unit) = remember {
+            mutableStateOf("Hello world!")
+        }
+
+        // livedata  를 compose state 로 사용하기.
+        val text3: State<String?> = viewModel.liveData.observeAsState("Hello world!")
+
         Scaffold {
-            NavHost(navController = navigationCtrl, startDestination = FIRST) {
-                composable(FIRST) {
-                    BuildFirstScreen(navigationCtrl)
+            Column {
+                Text(text = "Hello world!")
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = { /*TODO*/ }) {
+                    Text(text = "click me")
                 }
-                composable(SECOND) {
-                    BuildSecondScreen(navigationCtrl)
-                }
-                composable("$THIRD/{value}") {
-                    BuildThirdScreen(navigationCtrl, it.arguments?.getString("value") ?: "")
-                }
-            }
-        }
-    }
 
-    @Composable
-    fun BuildFirstScreen(ctrl: NavController) {
-        // 코틀린 구조 분해.
-        val (value, setValue) = remember {
-            mutableStateOf("")
-        }
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(text = "This is first screen")
-            Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = {
-                ctrl.navigate(SECOND)
-            }) {
-                Text(text = "Move to second screen")
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-            TextField(
-                value = value,
-                onValueChange = setValue,
-                placeholder = { Text(text = "input password") })
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = {
-                if (value == "8878") ctrl.navigate("$THIRD/$value")
-                // todo add snack bar.
-            }) {
-                Text(text = "Move to third screen")
-            }
-
-
-        }
-    }
-
-    @Composable
-    fun BuildSecondScreen(ctrl: NavController) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(text = "This is second screen")
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = {
-                ctrl.popBackStack()
-            }) {
-                Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "arrow_back")
-            }
-        }
-    }
-
-    @Composable
-    fun BuildThirdScreen(ctrl: NavController, password: String) {
-        val viewModel = viewModel<MainViewModel>()
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(text = "This is third screen")
-            Text(text = viewModel.text.value)
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = {
-                ctrl.navigateUp()
-            }) {
-                Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "arrow_back")
-            }
-            Button(onClick = {
-                viewModel.changeText()
-            }) {
-                Icon(imageVector = Icons.Default.Refresh, contentDescription = "change_value")
+                TextField(value = getValue, onValueChange = setValue)
             }
         }
     }
 }
 
-//
 class MainViewModel : ViewModel() {
-    private val _text = mutableStateOf("check it!")
-    val text: State<String> = _text
+    private val _value: MutableState<String> = mutableStateOf("Hello world!")
 
-    fun changeText() {
-        _text.value = if (_text.value == "check it!") "good!" else "check it!"
+    // state 객체, 읽기 전용.
+    val value: State<String> = _value
+
+    private val _liveData = MutableLiveData<String>()
+
+    val liveData: LiveData<String> = _liveData
+
+    // change value
+    fun changeValue(x: String) {
+        _value.value = x
     }
 }
