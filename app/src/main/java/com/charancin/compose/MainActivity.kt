@@ -5,10 +5,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -27,24 +28,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.charancin.compose.ui.theme.ComposeTheme
+import java.util.*
+import kotlin.concurrent.timer
 import kotlin.math.pow
-
-class MainViewModel : ViewModel() {
-
-    // 기존, 예제를 참고하며 만들때는 뷰모델에 height 와 weight 를 뷰모델이 가지게 구조를
-    // 마음대로 만들었지만
-    // 생각해보니 height 와 weight 는 한번만 쓰고 증발해버리는 단발성 value 라
-    // 굳이 뷰모델이 가지고 있을까 의문이 들어 예제와 똑같이 만들고
-    // composable 에서 콜백 형태로 넘겨주는 것 처럼 변경.
-
-    private val _bmi = mutableStateOf(.0)
-
-    val bmi = _bmi.value
-
-    fun setBmi(height: Double, weight: Double) {
-        _bmi.value = height / (weight / 100.0).pow(2.0)
-    }
-}
 
 class MainActivity : ComponentActivity() {
 
@@ -52,6 +38,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun DefaultPreview() {
         ComposeTheme {
+
         }
     }
 
@@ -59,122 +46,114 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val viewModel = viewModel<MainViewModel>()
-            val navController = rememberNavController()
-            NavHost(navController = navController, startDestination = "home", builder = {
-                composable(route = "home") {
-                    BuildHome { height, weight ->
-                        viewModel.setBmi(height, weight)
-                        // 여기서, 네비게이터 value 로 보내준다면 뷰모델 또한 필요가 없어짐.
-                        // 계산식도 이쪽으로 넘기고.
-                        navController.navigate("result")
-                    }
-                }
-                composable(route = "result") {
-                    // 여기서 bmi 를 바라보고 있지 않아도, 단발성 value 로 고칠 수있을 것 같음.
-                    BuildResult(navController, viewModel.bmi)
-                }
-            })
-        }
-    }
-
-    @Composable
-    fun BuildHome(onResult: (Double, Double) -> Unit) {
-        val (height, setHeight) = rememberSaveable {
-            mutableStateOf("")
-        }
-        val (weight, setWeight) = rememberSaveable {
-            mutableStateOf("")
-        }
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text(text = "비만도 계산기") }
-                )
-            }
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-            ) {
-                OutlinedTextField(
-                    value = height,
-                    onValueChange = setHeight,
-                    label = { Text(text = "키") },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = weight,
-                    singleLine = true,
-                    onValueChange = setWeight,
-                    label = { Text(text = "몸무게") },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        if (height.isNotEmpty() && weight.isNotEmpty()) {
-                            onResult(height.toDouble(), weight.toDouble())
-                        }
-                    },
+            Scaffold(topBar = {
+                TopAppBar(title = { Text(text = "Timer") })
+            }) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(text = "계산")
+                    Spacer(modifier = Modifier.height(80.dp))
+                    // timer text.
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        Text(text = "${viewModel.second.value}")
+                        Text(text = ":")
+                        Text(text = "${viewModel.milli.value}")
+                    }
+                    Spacer(modifier = Modifier.height(80.dp))
+                    // rap time.
+                    // todo 래코드 타임이 중복해서 찍히는 문제가 있음, 해결 바람.
+                    LazyColumn(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(count = viewModel.lapTime.value.size) {
+                            println(viewModel.lapTime.value.size)
+                            viewModel.lapTime.value.forEach {
+                                Text(it)
+                            }
+//                            for (record in viewModel.lapTime.value) Text(record)
+                        }
+                    }
+                    // controller.
+                    Row(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        FloatingActionButton(onClick = {
+                            viewModel.reset()
+                        }) {
+                            Icon(imageVector = Icons.Default.Refresh, contentDescription = "reset")
+                        }
+                        FloatingActionButton(onClick = {
+                            val isRunning = viewModel.isRunning.value
+                            if (isRunning) viewModel.pause() else viewModel.start()
+                        }) {
+                            val isRunning = viewModel.isRunning.value
+                            Icon(
+                                imageVector = if (isRunning) Icons.Default.Close else Icons.Default.PlayArrow,
+                                contentDescription = if (isRunning) "pause" else "start"
+                            )
+                        }
+                        FloatingActionButton(onClick = {
+                            viewModel.record()
+                        }) {
+                            Icon(imageVector = Icons.Default.Create, contentDescription = "record")
+                        }
+                    }
                 }
             }
         }
     }
+}
 
-    @Composable
-    fun BuildResult(navController: NavController, value: Double) {
-        // 뭔가 계산식이 안맞는 것 같지만, 예제니까 패스.
-        val text = when {
-            value >= 35 -> "초고도 비만"
-            value >= 30 -> "고도 비만"
-            value >= 25 -> "중고도 비만"
-            value >= 23 -> "비만"
-            value >= 18.5 -> "정상"
-            else -> "저체중"
+class MainViewModel : ViewModel() {
+
+    private var time = 0
+
+    private var timeTask: Timer? = null
+
+    private val _lapTimes = mutableStateOf(mutableListOf<String>())
+
+    val lapTime: State<List<String>> = _lapTimes
+
+    private val _second = mutableStateOf(0)
+    val second: State<Int> = _second
+
+    private val _milli = mutableStateOf(0)
+    val milli: State<Int> = _milli
+
+    private val _isRunning = mutableStateOf(false)
+    val isRunning: State<Boolean> = _isRunning
+
+    fun start() {
+        _isRunning.value = true
+        timeTask = timer(period = 10) {
+            time++
+            _second.value = time / 100
+            _milli.value = time % 100
         }
+    }
 
-        val imageRes = when {
-            value >= 23 -> R.drawable.ic_baseline_sentiment_very_dissatisfied_24
-            value >= 18.5 -> R.drawable.ic_baseline_sentiment_very_satisfied_24
-            else -> R.drawable.ic_baseline_sentiment_satisfied_alt_24
-        }
+    fun pause() {
+        _isRunning.value = false
+        timeTask?.cancel()
+    }
 
-        Scaffold(topBar = {
-            TopAppBar(
-                title = { Text(text = "결과") },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        navController.navigateUp()
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "back",
-                        )
-                    }
-                },
-            )
-        }) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(text = text, fontSize = 32.sp)
-                Spacer(modifier = Modifier.height(48.dp))
-                Image(
-                    painter = painterResource(id = imageRes),
-                    contentDescription = "normal",
-                    modifier = Modifier.size(80.dp),
-                    colorFilter = ColorFilter.tint(color = Color.Black)
-                )
+    fun reset() {
+        timeTask?.cancel()
+        time = 0
+        _isRunning.value = false
+        _second.value = 0
+        _milli.value = 0
+        _lapTimes.value.clear()
+    }
 
-            }
-        }
+    fun record() {
+        _lapTimes.value.add("#${_lapTimes.value.size}RAP ${_second.value}:${_milli.value}")
     }
 }
