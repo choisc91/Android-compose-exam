@@ -1,10 +1,18 @@
 package com.charancin.compose
 
+import android.Manifest
+import android.app.Application
+import android.content.ContentUris
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -30,6 +40,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -37,14 +49,18 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import coil.compose.rememberImagePainter
 import com.charancin.compose.ui.theme.ComposeTheme
+import com.google.accompanist.pager.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.lang.Appendable
 import java.text.DecimalFormat
 import java.util.*
 import kotlin.concurrent.timer
+import kotlin.math.absoluteValue
 import kotlin.math.pow
 
 class MainActivity : ComponentActivity() {
@@ -57,163 +73,139 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @ExperimentalPagerApi
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            BuildScaffold()
-        }
-    }
-
-    @Composable
-    fun BuildScaffold() {
-        val viewModel = viewModel<MainViewModel>()
-        val focusManager = LocalFocusManager.current
-        val scaffoldState = rememberScaffoldState()
-        val (url, setUrl) = rememberSaveable {
-            mutableStateOf("https://m.naver.com")
-        }
-        val context = LocalContext.current
-        val webView = remember {
-            WebView(context).apply {
-                settings.javaScriptEnabled = true
-                webViewClient = WebViewClient()
-                loadUrl("https://m.naver.com")
+            val viewModel = viewModel<MainViewModel>()
+            var isGranted by remember {
+                mutableStateOf(false)
             }
-        }
-
-        // Composable 안에서 코루틴 스코프 사용 시 주의.
-//        val scope = rememberCoroutineScope()
-        LaunchedEffect(Unit) {
-            viewModel.undoFlow.collectLatest {
-                if (webView.canGoBack()) {
-                    webView.goBack()
-                } else {
-                    scaffoldState.snackbarHostState.showSnackbar("마지막")
+            val launcher =
+                rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                    isGranted = it
                 }
-            }
-        }
-
-        LaunchedEffect(Unit) {
-            viewModel.redoFlow.collectLatest {
-                if (webView.canGoForward()) {
-                    webView.canGoForward()
-                } else {
-                    scaffoldState.snackbarHostState.showSnackbar("첫번째")
-                }
-            }
-        }
-
-        Scaffold(
-                scaffoldState = scaffoldState,
-                topBar = {
-                    TopAppBar(
-                            title = { Text("Web app") },
-                            actions = {
-                                IconButton(
-                                        onClick = {
-                                            viewModel.undo()
-                                            // todo set back arrow action.
-                                        }
-                                ) {
-                                    Icon(
-                                            imageVector = Icons.Default.ArrowBack,
-                                            contentDescription = "back",
-                                            tint = Color.White,
-                                    )
-                                }
-                                IconButton(
-                                        onClick = {
-                                            viewModel.redo()
-                                            // todo set forward arrow action.
-                                        }
-                                ) {
-                                    Icon(
-                                            imageVector = Icons.Default.ArrowForward,
-                                            contentDescription = "forward",
-                                            tint = Color.White,
-                                    )
-                                }
-                            }
-                    )
-                }
-        ) {
-            //  todo set webview
-            Column(modifier = Modifier
-                    .padding(16.dp)
-                    .fillMaxSize()
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+                ) == PackageManager.PERMISSION_GRANTED
             ) {
-                OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = url,
-                        onValueChange = setUrl,
-                        label = { Text(text = "https://") },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = {
-                            focusManager.clearFocus()
-                            viewModel.url.value = url
-                        })
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                // Composable view 가 아닌 일반 android 에서 제공하는 View 를 사용하는 방법.
-                AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = {
-                            // context 가 들고오고, Android view 에 context 를 제공 해줘야한다.
-                            // Android web view.
-                            webView
-                        },
-                        // 코루틴 스코프을 제공하지 않아 별도 값 처리.
-                        update = { webView ->
-                            webView.loadUrl(viewModel.url.value)
-                            // 화면 갱신 부분. composition 이 다시 실행 될 때는 update 발생 함.
-                            // 비워 두게 되면 factory 따라 감.
-                            // 반복적으로 실행되는 오류가 있음.
-//                            scope.launch {
-//                                viewModel.undoFlow.collectLatest {
-//                                    if (webView.canGoBack()) {
-//                                        webView.goBack()
-//                                    } else {
-//                                        scaffoldState.snackbarHostState.showSnackbar("마지막")
-//                                    }
-//                                }
-//                            }
-//                            scope.launch {
-//                                viewModel.redoFlow.collectLatest {
-//                                    if (webView.canGoForward()) {
-//                                        webView.canGoForward()
-//                                    } else {
-//                                        scaffoldState.snackbarHostState.showSnackbar("첫번째")
-//                                    }
-//                                }
-//                            }
-                        }
-                )
+                isGranted = true
+            }
+
+            if (isGranted) {
+                viewModel.getPictures()
+                PictureScreen(viewModel.pictureUris.value)
+            } else {
+                PermissionScreen {
+                    launcher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
             }
         }
     }
 }
 
-class MainViewModel : ViewModel() {
-    val url = mutableStateOf("https://m.naver.com")
+// content provider, 사용 시 context 가 필요한데, viewModel 에서는 얻을 수가 없어
+// Android view model 을 사용해 context 제공.
+class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _undoFlow = MutableSharedFlow<Boolean>()
+    private val _pictureUris = mutableStateOf(emptyList<Uri>())
 
-    val undoFlow = _undoFlow.asSharedFlow()
+    val pictureUris: State<List<Uri>> = _pictureUris
 
-    private val _redoFlow = MutableSharedFlow<Boolean>()
+    fun getPictures() {
+        val uris = mutableListOf<Uri>()
+        getApplication<Application>().contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            null,
+            null,
+            null,
+            "${MediaStore.Images.ImageColumns.DATE_ADDED} DESC",
+        )?.use { cursor ->
+            // 컬럼의 아이디의 인덱스.
+            val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
 
-    val redoFlow = _redoFlow.asSharedFlow()
-
-
-    fun undo() {
-        viewModelScope.launch {
-            _undoFlow.emit(true)
+            // cursor 안에 있는 객체 순환.
+            while (cursor.moveToNext()) {
+                // 아이디.
+                val id = cursor.getLong(idIndex)
+                val contentUri =
+                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                uris.add(contentUri)
+            }
         }
+        _pictureUris.value = uris
     }
+}
 
-    fun redo() {
-        viewModelScope.launch {
-            _redoFlow.emit(true)
+@ExperimentalPagerApi
+@Composable
+fun PictureScreen(pictures: List<Uri>) {
+    // 시범 기능이라 오류 남.
+    val pagerState = rememberPagerState()
+    Column(modifier = Modifier.fillMaxSize()) {
+        HorizontalPager(
+            state = pagerState,
+            count = pictures.size,
+            modifier = Modifier
+                .weight(1f)
+                .padding(16.dp)
+                .fillMaxSize()
+        ) { index ->
+            Card(
+                modifier = Modifier
+                    .graphicsLayer {
+                        // 화면이 그려질때의 애니메이션을 구현할 수 있음.
+                        val pageOffset = calculateCurrentOffsetForPage(index).absoluteValue
+                        lerp(
+                            start = 0.85f,
+                            stop = 1f,
+                            fraction = 1f - pageOffset.coerceIn(0f, 1f)
+                        ).also {
+                            scaleX = it
+                            scaleY = it
+                        }
+                        alpha = lerp(
+                            start = 0.5f,
+                            stop = 1f,
+                            fraction = 1f - pageOffset.coerceIn(0f, 1f)
+                        )
+                    }
+            ) {
+                Image(
+                    painter = rememberImagePainter(data = pictures[index]),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        }
+        HorizontalPagerIndicator(
+            pagerState = pagerState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.CenterHorizontally)
+                .padding(16.dp),
+        )
+    }
+}
+
+@Composable
+fun PermissionScreen(onClick: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text = "사진첩에 접근하기 위한 권한이 필요합니다")
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = onClick
+        ) {
+            Text(text = "권한 요청")
         }
     }
 }
+
+private fun lerp(start: Float, stop: Float, fraction: Float): Float =
+    (1 - fraction) * start + fraction * stop
