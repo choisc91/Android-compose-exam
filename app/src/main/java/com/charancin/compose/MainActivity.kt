@@ -1,25 +1,24 @@
 package com.charancin.compose
 
 import android.app.Application
-import android.content.Context
 import android.content.pm.ActivityInfo
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
+import android.media.SoundPool
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.charancin.compose.ui.theme.ComposeTheme
@@ -34,98 +33,82 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val viewModel by viewModels<MainViewModel>()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) // 화면 유지.
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE    // 가로 고정.
         super.onCreate(savedInstanceState)
-        lifecycle.addObserver(viewModel)
         setContent {
-//            val viewModel = viewModel<MainViewModel>()
-            TiltScreen(
-                x = viewModel.x.value, y = viewModel.y.value
+            val viewModel = viewModel<MainViewModel>()
+            val keys = listOf(
+                Pair("도", Color.Red),
+                Pair("레", Color.Red),
+                Pair("미", Color.Red),
+                Pair("파", Color.Red),
+                Pair("솔", Color.Red),
+                Pair("라", Color.Red),
+                Pair("시", Color.Red),
+                Pair("도#", Color.Red),
             )
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+
+                ) {
+                keys.forEachIndexed { index, key ->
+                    val padding = (index + 2) * 8
+                    val modifier = Modifier
+                        .padding(top = padding.dp, bottom = padding.dp)
+                        .clickable {
+                            viewModel.playSound(index)
+                        }
+                    Keyboard(modifier = modifier, color = key.second, text = key.first)
+                }
+            }
         }
     }
 }
 
 @Composable
-fun TiltScreen(x: Float, y: Float) {
-    val yCoord = x * 20
-    val xCoord = y * 20
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val centerX = size.width / 2
-        val centerY = size.height / 2
-        drawCircle(
-            color = Color.Black,
-            radius = 100f,
-            center = Offset(centerX, centerY),
-            style = Stroke(),
-        )
-        drawCircle(
-            color = Color.Green,
-            radius = 100f,
-            center = Offset(xCoord + centerX, yCoord + centerY),
-        )
-        drawLine(
-            color = Color.Black,
-            start = Offset(centerX - 20, centerY),
-            end = Offset(centerX + 20, centerY)
-        )
-        drawLine(
-            color = Color.Black,
-            start = Offset(centerX, centerY - 20),
-            end = Offset(centerX, centerY + 20)
+fun Keyboard(modifier: Modifier, color: Color, text: String) {
+    Box(
+        modifier = modifier
+            .width(48.dp)
+            .fillMaxHeight()
+            .background(color = color)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.align(Alignment.Center),
+            style = TextStyle(
+                color = Color.White,
+                fontSize = 24.sp,
+            )
         )
     }
 }
 
-class MainViewModel(application: Application) : AndroidViewModel(application),
-    LifecycleEventObserver,
-    SensorEventListener {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val soundPool = SoundPool.Builder().setMaxStreams(8).build()
 
-    private val _x = mutableStateOf(0f)
+    private val sounds = listOf(
+        soundPool.load(application.applicationContext, R.raw.do1, 1),
+        soundPool.load(application.applicationContext, R.raw.re, 1),
+        soundPool.load(application.applicationContext, R.raw.mi, 1),
+        soundPool.load(application.applicationContext, R.raw.fa, 1),
+        soundPool.load(application.applicationContext, R.raw.sol, 1),
+        soundPool.load(application.applicationContext, R.raw.la, 1),
+        soundPool.load(application.applicationContext, R.raw.si, 1),
+        soundPool.load(application.applicationContext, R.raw.do2, 1),
+    )
 
-    val x: State<Float> = _x
-
-    private val _y = mutableStateOf(0f)
-
-    val y: State<Float> = _y
-
-
-    // 늦은 초기화 기법 사용.
-    private val sensorManager by lazy {
-        application.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    fun playSound(index: Int) {
+        soundPool.play(sounds[index], 1f, 1f, 0, 0, 1f)
     }
 
-    private fun registerSensor() {
-        sensorManager.registerListener(
-            this,
-            sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
-            SensorManager.SENSOR_DELAY_NORMAL,
-        )
-    }
-
-    private fun unregisterSensor() {
-        sensorManager.unregisterListener(this)
+    override fun onCleared() {
+        soundPool.release()
+        super.onCleared()
     }
 
 
-    override fun onSensorChanged(event: SensorEvent?) {
-        event?.let {
-            _x.value = event.values[0]
-            _y.value = event.values[1]
-        }
-    }
-
-    override fun onAccuracyChanged(p0: Sensor?, p1: Int) {}
-
-    override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
-        if (event == Lifecycle.Event.ON_RESUME) {
-            registerSensor()
-        } else if (event == Lifecycle.Event.ON_PAUSE) {
-            unregisterSensor()
-        }
-    }
 }
