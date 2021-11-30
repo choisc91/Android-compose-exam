@@ -1,27 +1,43 @@
 package com.charancin.compose
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Application
-import android.content.pm.ActivityInfo
-import android.media.SoundPool
+import android.content.pm.PackageManager
+import android.graphics.Color
+import android.location.Location
 import android.os.Bundle
+import android.os.Looper
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.Button
+import androidx.compose.material.Colors
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.charancin.compose.ui.theme.ComposeTheme
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.MapView
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MarkerOptions
+import com.google.android.gms.maps.model.PolylineOptions
 
 class MainActivity : ComponentActivity() {
 
@@ -33,82 +49,162 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // 앱 실행시 화면 유지.
+    private fun keepScreen() {
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    // 가로 고정.
+    private fun setOrientation(mode: Int) {
+//        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+//        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        requestedOrientation = mode
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) // 화면 유지.
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE    // 가로 고정.
+        keepScreen()
+//        setOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
         super.onCreate(savedInstanceState)
         setContent {
-            val viewModel = viewModel<MainViewModel>()
-            val keys = listOf(
-                Pair("도", Color.Red),
-                Pair("레", Color.Red),
-                Pair("미", Color.Red),
-                Pair("파", Color.Red),
-                Pair("솔", Color.Red),
-                Pair("라", Color.Red),
-                Pair("시", Color.Red),
-                Pair("도#", Color.Red),
+            var granted by remember {
+                mutableStateOf(false)
+            }
+            val launcher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission(),
+                onResult = { isGranted ->
+                    granted = isGranted
+                }
             )
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                granted = true
+            }
+            if (granted) {
+                val viewModel = viewModel<MainViewModel>()
+                lifecycle.addObserver(viewModel)
+                BuildMapView(viewModel)
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                keys.forEachIndexed { index, key ->
-                    val padding = (index + 2) * 8
-                    val modifier = Modifier
-                        .padding(top = padding.dp, bottom = padding.dp)
-                        .clickable {
-                            viewModel.playSound(index)
-                        }
-                    Keyboard(modifier = modifier, color = key.second, text = key.first)
+                    Text(text = "권한이 허용되지 않았습니다")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = {
+                        launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    }) {
+                        Text(text = "권한 허용")
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-fun Keyboard(modifier: Modifier, color: Color, text: String) {
-    Box(
-        modifier = modifier
-            .width(48.dp)
-            .fillMaxHeight()
-            .background(color = color)
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.align(Alignment.Center),
-            style = TextStyle(
-                color = Color.White,
-                fontSize = 24.sp,
+class MainViewModel(application: Application) : AndroidViewModel(application),
+    LifecycleEventObserver {
+    private val client =
+        FusedLocationProviderClient(application.applicationContext)
+
+    private val locationRequest: LocationRequest
+
+    private val locationCallback: MyLocationCallback
+
+    private val _state = mutableStateOf(
+        MapState(null, PolylineOptions().width(5f).color(Color.RED))
+    )
+
+    val state: State<MapState> = _state
+
+    init {
+        locationCallback = MyLocationCallback()
+        locationRequest = LocationRequest.create()
+        locationRequest.priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+        locationRequest.interval = 10000    // 최대 10초, 위치 변경이 없을 시에는 동작하지 않음.
+        locationRequest.fastestInterval = 5000  // 최소 5초마다 갱신 함.
+    }
+
+    inner class MyLocationCallback : LocationCallback() {
+
+        override fun onLocationResult(locationResult: LocationResult) {
+            super.onLocationResult(locationResult)
+            val current = locationResult.lastLocation // 마지막으로 수신 받은 위치.
+
+            val polyLine = state.value.polylineOptions
+            _state.value = state.value.copy(
+                location = current,
+                polylineOptions = polyLine.add(LatLng(current.latitude, current.longitude))
             )
-        )
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+        if (event == Lifecycle.Event.ON_RESUME) {
+            client.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                Looper.getMainLooper()
+            )
+        } else if (event == Lifecycle.Event.ON_PAUSE) {
+            client.removeLocationUpdates(locationCallback)
+        }
     }
 }
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val soundPool = SoundPool.Builder().setMaxStreams(8).build()
+data class MapState(
+    val location: Location?,
+    val polylineOptions: PolylineOptions,
+)
 
-    private val sounds = listOf(
-        soundPool.load(application.applicationContext, R.raw.do1, 1),
-        soundPool.load(application.applicationContext, R.raw.re, 1),
-        soundPool.load(application.applicationContext, R.raw.mi, 1),
-        soundPool.load(application.applicationContext, R.raw.fa, 1),
-        soundPool.load(application.applicationContext, R.raw.sol, 1),
-        soundPool.load(application.applicationContext, R.raw.la, 1),
-        soundPool.load(application.applicationContext, R.raw.si, 1),
-        soundPool.load(application.applicationContext, R.raw.do2, 1),
+@Composable
+fun BuildMapView(viewModel: MainViewModel) {
+    val mapView = rememberMapView()
+    val state = viewModel.state.value
+
+    AndroidView(
+        factory = { mapView },
+        update = {
+            mapView.getMapAsync { googleMap ->
+                state.location?.let {
+                    val latLng = LatLng(it.latitude, it.longitude)
+                    googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 17f))
+                    googleMap.addPolyline(state.polylineOptions)
+                }
+            }
+        }
     )
+}
 
-    fun playSound(index: Int) {
-        soundPool.play(sounds[index], 1f, 1f, 0, 0, 1f)
+@Composable
+fun rememberMapView(): MapView {
+    val context = LocalContext.current
+    val mapView = remember {
+        MapView(context)
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        // 라이프사이클 감지.
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_CREATE -> mapView.onCreate(Bundle())
+                Lifecycle.Event.ON_START -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                Lifecycle.Event.ON_STOP -> mapView.onStop()
+                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                else -> throw IllegalStateException("error message")
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
-    override fun onCleared() {
-        soundPool.release()
-        super.onCleared()
-    }
-
-
+    return mapView
 }
